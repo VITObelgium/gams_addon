@@ -1,13 +1,13 @@
 __author__ = 'Hanspeter Hoeschle <hanspeter.hoeschle@gmail.com>'
 __date__ = "26/06/2017"
+import io
 import subprocess
 import sys
-from StringIO import StringIO
 
 import pandas as pd
 
-from domain_info import DomainInfo
-from gams_add_on_exception import GamsAddOnException
+from .domain_info import DomainInfo
+from .gams_add_on_exception import GamsAddOnException
 
 
 def gdx_to_df(gdx_file, symbol, gams_type='L', domain_info=None, fillna=0.0):
@@ -38,11 +38,11 @@ def gdx_to_df(gdx_file, symbol, gams_type='L', domain_info=None, fillna=0.0):
 def __gdx_to_df_equ(gdx_file, symbol, domain_info, gams_type, fillna):
     sets = domain_info.get_sets(symbol)
     if sets and any([s == "*" for s in sets]):
-        print "-" * 80
-        print "WARNING: Sets have not been specified for: %s" % symbol
-        print "-" * 80
+        print("-" * 80)
+        print("WARNING: Sets have not been specified for: %s" % symbol)
+        print("-" * 80)
         (out, err) = __call_gdxdump(gdx_file, symbol, gams_type)
-        df_in = pd.read_csv(StringIO(out), sep=",")
+        df_in = pd.read_csv(io.StringIO(out), sep=",")
         if gams_type == "L":
             idx = list(df_in.columns[:-1])
             df_in.set_index(idx, inplace=True)
@@ -88,7 +88,7 @@ def __gdx_to_df_equ(gdx_file, symbol, domain_info, gams_type, fillna):
         df[symbol] = fillna
 
         (out, err) = __call_gdxdump(gdx_file, symbol, gams_type)
-        df_in = pd.read_csv(StringIO(out), sep=",")
+        df_in = pd.read_csv(io.StringIO(out), sep=",")
         if gams_type == "L":
             df_in.columns = df.index.names + [symbol]
         else:
@@ -119,7 +119,7 @@ def __gdx_to_df_var(gdx_file, symbol, domain_info, gams_type, fillna):
     df[symbol] = fillna
 
     (out, err) = __call_gdxdump(gdx_file, symbol, gams_type)
-    df_in = pd.read_csv(StringIO(out), sep=",")
+    df_in = pd.read_csv(io.StringIO(out), sep=",")
     if gams_type == "L":
         index = list(df_in.columns[:-1])
         df_in.set_index(index, inplace=True)
@@ -154,7 +154,7 @@ def __gdx_to_df_par(gdx_file, symbol, domain_info, fillna):
 
     if any([s == "*" for s in sets]):
         (out, err) = __call_gdxdump(gdx_file, symbol)
-        df = pd.read_csv(StringIO(out), sep=",", index_col=range(len(sets)))
+        df = pd.read_csv(io.StringIO(out), sep=",", index_col=[idx for idx in range(len(sets))])
         df.columns = [symbol]
         return df
     else:
@@ -177,7 +177,7 @@ def __gdx_to_df_par(gdx_file, symbol, domain_info, fillna):
         df[symbol] = fillna
 
         (out, err) = __call_gdxdump(gdx_file, symbol)
-        df_in = pd.read_csv(StringIO(out), sep=",")
+        df_in = pd.read_csv(io.StringIO(out), sep=",")
 
         index = list(df_in.columns[:-1])
         df_in.set_index(index, inplace=True)
@@ -190,7 +190,7 @@ def __gdx_to_df_par(gdx_file, symbol, domain_info, fillna):
 
 def __gdx_to_df_scalar(gdx_file, symbol, gams_type="L", fillna=0.0):
     (out, err) = __call_gdxdump(gdx_file, symbol, gams_type)
-    df = pd.read_csv(StringIO(out), sep=",")
+    df = pd.read_csv(io.StringIO(out), sep=",")
     if gams_type == "L":
         return float(df.loc[0, "Val"])
     elif gams_type == "M":
@@ -211,7 +211,7 @@ def __gdx_to_df_set(gdx_file, symbol, domain_info):
     # Set with a undefined set, also 1-dimensional sets
     if any([s == "*" for s in sets]):
         (out, err) = __call_gdxdump(gdx_file, symbol)
-        df = pd.read_csv(StringIO(out), sep=",", index_col=range(len(sets)))
+        df = pd.read_csv(io.StringIO(out), sep=",", index_col=[idx for idx in range(len(sets))])
         df[symbol] = True
         if len(sets) == 1:
             df.index.names = [symbol]
@@ -221,31 +221,36 @@ def __gdx_to_df_set(gdx_file, symbol, domain_info):
     elif [symbol] == sets:
         set_names = sets
         (out, err) = __call_gdxdump(gdx_file, symbol)
-        df = pd.read_csv(StringIO(out), sep=",")
+        df = pd.read_csv(io.StringIO(out), sep=",")
         df.set_index(sets, inplace=True)
         df[symbol] = True
         return df
 
     # Super sets or others
     elif [symbol] != sets:
-        set_names = sets
+        if type(sets) is not list:
+            set_names = [sets]
+        else:
+            set_names = sets
         set_index = []
-        for s in sets:
+        for s in set_names:
             set_index.append(list(__gdx_to_df_set(gdx_file, s, domain_info).index))
 
-        df = pd.DataFrame(index=pd.MultiIndex.from_product(set_index))
+        if len(set_index) > 1:
+            df = pd.DataFrame(index=pd.MultiIndex.from_product(set_index))
+        else:
+            df = pd.DataFrame(index=set_index[0])
         df.index.names = set_names
         df[symbol] = False
 
         (out, err) = __call_gdxdump(gdx_file, symbol)
-        df_in = pd.read_csv(StringIO(out), sep=",")
+        df_in = pd.read_csv(io.StringIO(out), sep=",")
         df_in[symbol] = True
         index = list(df_in.columns[:-1])
         df_in.set_index(index, inplace=True)
         df.loc[df_in.index, symbol] = True
         df.index.names = set_names
         return df
-
 
     else:
         raise GamsAddOnException("Check handling of sets %s", sets)
@@ -280,4 +285,6 @@ def __call_gdxdump(gdx_file, symbol, gams_type="L"):
                                     stderr=subprocess.STDOUT)
         else:
             raise GamsAddOnException('ERROR {platform} not handled'.format(platform=sys.platform))
-    return proc.communicate()
+    (out, err) = proc.communicate()
+    out = out.decode("latin-1")
+    return out, err

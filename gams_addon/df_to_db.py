@@ -5,7 +5,7 @@ import gams
 
 def add_df_to_db(df, name, db, gams_type, result_type='L'):
     if gams_type == gams.GamsParameter:
-        print "Add parameter from GamsDatabase"
+        print("Add parameter from GamsDatabase")
         try:
             param = db.get_parameter(name)
 
@@ -24,7 +24,7 @@ def add_df_to_db(df, name, db, gams_type, result_type='L'):
                     param.add_record(gams_idx).value = float(df.loc[idx, col_name])
 
         except gams.GamsException as e:
-            print e
+            print(e)
             exit("Not yet implemented: Create new %s in db" % gams_type)
 
     else:

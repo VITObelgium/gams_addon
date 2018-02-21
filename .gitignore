@@ -5,3 +5,5 @@ sandbox.py
 *.pyc
 gams_addon.egg-info
 tests/own
+local_test_cases
+.cache

@@ -3,7 +3,7 @@ __date__ = "26/06/2017"
 import subprocess
 import sys
 
-from gams_add_on_exception import GamsAddOnException
+from .gams_add_on_exception import GamsAddOnException
 
 
 class DomainInfo(object):
@@ -25,7 +25,8 @@ class DomainInfo(object):
         else:
             raise GamsAddOnException('ERROR {platform} not handled'.format(platform=sys.platform))
         (out, err) = proc.communicate()
-        if 'GDX file not found' in out:
+        out = out.decode("latin-1")
+        if "GDX file not found" in out:
             msg = out.replace('\n', ' ')
             raise IOError(msg)
         for l, line in enumerate(out.split('\n')):
@@ -44,6 +45,7 @@ class DomainInfo(object):
         else:
             raise GamsAddOnException('ERROR {platform} not handled'.format(platform=sys.platform))
         (out, err) = proc.communicate()
+        out = out.decode("latin-1")
         # print out, err
         for l, line in enumerate(out.split('\n')):
             try:
@@ -73,6 +75,9 @@ class DomainInfo(object):
             return self.symbols[symbol][1]
         else:
             return None
+
+    def is_alias(self, symbol):
+        return self.symbols[symbol][0] == "Alias"
 
     def check_alias(self, symbol):
         if self.symbols[symbol][1]:

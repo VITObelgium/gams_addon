@@ -12,5 +12,5 @@ class TestDomainInfo(unittest.TestCase):
         create_test_database(gdx_file)
 
         di = DomainInfo(gdx_file)
-        print di
-        self.assertEqual(len(di.symbols), 9)
+        print(di)
+        self.assertEqual(len(di.symbols), 19)
