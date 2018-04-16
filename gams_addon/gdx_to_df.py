@@ -1,259 +1,145 @@
-__author__ = 'Hanspeter Hoeschle <hanspeter.hoeschle@gmail.com>'
-__date__ = "26/06/2017"
-import io
+__author__ = 'Hanspeter Höschle <hanspeter.hoeschle@energyville.be>'
+__date__ = "16/04/2018"
 import subprocess
 import sys
 
+import gams
 import pandas as pd
 
-from .domain_info import DomainInfo
 from .gams_add_on_exception import GamsAddOnException
 
 
-def gdx_to_df(gdx_file, symbol, gams_type='L', domain_info=None, fillna=0.0):
-    # Derive domain info
-    if domain_info is None:
-        domain_info = DomainInfo(gdx_file)
-    if symbol not in domain_info.symbols:
-        raise GamsAddOnException('"%s" not in Domain of "%s"' % (symbol, gdx_file))
-    symbol_type = domain_info.symbols[symbol][0]
+def gdx_to_df(gdx_file, symbol, **kwargs):
+    ws = gams.GamsWorkspace()
+    db = ws.add_database_from_gdx(gdx_file)
+    s = db.get_symbol(symbol)
+    gams_type = "L"
+    fillna = 0.0
+    if kwargs is not None:
+        if "fillna" in kwargs.keys():
+            fillna = kwargs["fillna"]
+        if "gams_type" in kwargs.keys():
+            gams_type = kwargs["gams_type"]
 
-    # Sets
-    if symbol_type == "Set":
-        return __gdx_to_df_set(gdx_file, symbol, domain_info)
-
-    # Parameter
-    if symbol_type == "Par":
-        return __gdx_to_df_par(gdx_file, symbol, domain_info, fillna)
-
-    # Variable
-    if symbol_type == "Var":
-        return __gdx_to_df_var(gdx_file, symbol, domain_info, gams_type.upper(), fillna)
-
-    # Equation
-    if symbol_type == "Equ":
-        return __gdx_to_df_equ(gdx_file, symbol, domain_info, gams_type.upper(), fillna)
-
-
-def __gdx_to_df_equ(gdx_file, symbol, domain_info, gams_type, fillna):
-    sets = domain_info.get_sets(symbol)
-    if sets and any([s == "*" for s in sets]):
-        print("-" * 80)
-        print("WARNING: Sets have not been specified for: %s" % symbol)
-        print("-" * 80)
-        (out, err) = __call_gdxdump(gdx_file, symbol, gams_type)
-        df_in = pd.read_csv(io.StringIO(out), sep=",")
-        if gams_type == "L":
-            idx = list(df_in.columns[:-1])
-            df_in.set_index(idx, inplace=True)
-            df_in.columns = [symbol]
-            return df_in
-        else:
-            idx = list(df_in.columns[:-5])
-            df_in.set_index(idx, inplace=True)
-            if gams_type == "M":
-                df_in[symbol] = df_in["Marginal"]
-            elif gams_type == "LO":
-                df_in[symbol] = df_in["Lower"]
-            elif gams_type == "UP":
-                df_in[symbol] = df_in["Upper"]
-            elif gams_type == "SCALE":
-                df_in[symbol] = df_in["Scale"]
-            else:
-                raise GamsAddOnException("gams_type %s not defined" % gams_type)
-            return pd.DataFrame(df_in[symbol])
+    if type(s) in [gams.GamsVariable, gams.GamsEquation]:
+        return __gdx_to_df_var_equ(s, gams_type, fillna)
+    elif type(s) == gams.GamsParameter:
+        return __gdx_to_df_par(s, fillna)
+    elif type(s) == gams.GamsSet:
+        return __gdx_to_df_set(s)
     else:
-        set_names = []
-        set_index = []
+        exit("ERROR: NOT YET IMPLEMENTED for %s" % type(s))
 
-        if sets:
-            for s in sets:
-                ss = s
-                i = 1
-                while ss in set_names:
-                    ss = "%s_%02d" % (s, i)
-                    i += 1
-                set_names.append(ss)
-                if s != "*":
-                    idx = __gdx_to_df_set(gdx_file, s, domain_info)
-                    idx = idx[idx[s]].index
-                else:
-                    idx = [0]
-                set_index.append(list(idx))
-                df = pd.DataFrame(index=pd.MultiIndex.from_product(set_index))
-                df.index.names = set_names
+
+def __gdx_to_df_var_equ(var, gams_type="L", fillna=0.0):
+    index_cols = []
+    index_names = []
+    if var.domains == []:
+        return __gdx_to_df_scalar(var, gams_type)
+    for domain in var.domains:
+        if type(domain) == gams.GamsSet:
+            index_cols.append([ss.keys[0] for ss in domain])
+            index_names.append(domain.name)
         else:
-            return __gdx_to_df_scalar(gdx_file, symbol, gams_type)
+            index_cols.append(["PLACEHOLDER"])
+            index_names.append("*")
+    index = pd.MultiIndex.from_product(index_cols)
+    df = pd.DataFrame(None, index=index, columns=[var.name])
+    df.index.names = index_names
+    if len(df.index.names) > 1 and (
+            any([n == "*" for n in df.index.names]) or any([n == None for n in df.index.names])):
+        df.index.names = ["Dim%d" % d for d in range(1, len(df.index.names) + 1)]
 
-        df[symbol] = fillna
-
-        (out, err) = __call_gdxdump(gdx_file, symbol, gams_type)
-        df_in = pd.read_csv(io.StringIO(out), sep=",")
-        if gams_type == "L":
-            df_in.columns = df.index.names + [symbol]
-        else:
-            exit()
-
-        df[symbol] = df_in[symbol]
-        return df.fillna(fillna)
-
-
-def __gdx_to_df_var(gdx_file, symbol, domain_info, gams_type, fillna):
-    sets = domain_info.get_sets(symbol)
-    if sets is None:
-        return __gdx_to_df_scalar(gdx_file, symbol, gams_type=gams_type, fillna=fillna)
-
-    set_names = []
-    set_index = []
-
-    for s in sets:
-        ss = s
-        while ss in set_names:
-            ss = ss + s[-1]
-        set_names.append(ss)
-        idx = __gdx_to_df_set(gdx_file, s, domain_info)
-        idx = idx[idx[s]].index
-        set_index.append(list(idx))
-    df = pd.DataFrame(index=pd.MultiIndex.from_product(set_index))
-    df.index.names = set_names
-    df[symbol] = fillna
-
-    (out, err) = __call_gdxdump(gdx_file, symbol, gams_type)
-    df_in = pd.read_csv(io.StringIO(out), sep=",")
-    if gams_type == "L":
-        index = list(df_in.columns[:-1])
-        df_in.set_index(index, inplace=True)
-        for idx in df_in.index:
-            df.loc[idx, symbol] = df_in.loc[idx, "Val"]
+    if gams_type.upper() == "L":
+        for value in var:
+            df.loc[tuple(value.keys), var.name] = value.level
+    elif gams_type.upper() == "M":
+        for value in var:
+            df.loc[tuple(value.keys), var.name] = value.marginal
+    elif gams_type.upper() == "UP":
+        for value in var:
+            df.loc[tuple(value.keys), var.name] = value.upper
+    elif gams_type.upper() == "LO":
+        for value in var:
+            df.loc[tuple(value.keys), var.name] = value.lower
+    elif gams_type.upper() == "SCALE":
+        for value in var:
+            df.loc[tuple(value.keys), var.name] = value.scale
     else:
-        index = list(df_in.columns[:-5])
-        df_in.set_index(index, inplace=True)
-        if gams_type == "M":
-            for idx in df_in.index:
-                df.loc[idx, symbol] = df_in.loc[idx, "Marginal"]
-        elif gams_type == "LO":
-            for idx in df_in.index:
-                df.loc[idx, symbol] = df_in.loc[idx, "Lower"]
-        elif gams_type == "UP":
-            for idx in df_in.index:
-                df.loc[idx, symbol] = df_in.loc[idx, "Upper"]
-        elif gams_type == "SCALE":
-            for idx in df_in.index:
-                df.loc[idx, symbol] = df_in.loc[idx, "Scale"]
+        raise GamsAddOnException("gams_type %s not defined" % gams_type)
+
+    df.drop(tuple(["PLACEHOLDER"] * len(df.index.names)), axis=0, inplace=True, errors="ignore")
+    df.fillna(fillna, inplace=True)
+    return df
+
+
+def __gdx_to_df_par(par, fillna=0.0):
+    index_cols = []
+    index_names = []
+    if par.domains == []:
+        return __gdx_to_df_scalar(par)
+    for domain in par.domains:
+        if type(domain) == gams.GamsSet:
+            index_cols.append([ss.keys[0] for ss in domain])
+            index_names.append(domain.name)
         else:
-            raise GamsAddOnException("gams_type %s not defined" % gams_type)
+            index_cols.append(["PLACEHOLDER"])
+            index_names.append("*")
+    index = pd.MultiIndex.from_product(index_cols)
+    df = pd.DataFrame(0., index=index, columns=[par.name])
+    df.index.names = index_names
+    if any([n == "*" for n in df.index.names]):
+        df.index.names = ["Dim%d" % d for d in range(1, len(df.index.names) + 1)]
 
-    return df.fillna(fillna)
+    for value in par:
+        df.loc[tuple(value.keys), par.name] = value.value
 
-
-def __gdx_to_df_par(gdx_file, symbol, domain_info, fillna):
-    sets = domain_info.get_sets(symbol)
-
-    if sets is None:
-        return __gdx_to_df_scalar(gdx_file, symbol)
-
-    if any([s == "*" for s in sets]):
-        (out, err) = __call_gdxdump(gdx_file, symbol)
-        df = pd.read_csv(io.StringIO(out), sep=",", index_col=[idx for idx in range(len(sets))])
-        df.columns = [symbol]
-        return df
-    else:
-        set_names = []
-        set_index = []
-
-        for s in sets:
-            ss = s
-            i = 1
-            while ss in set_names:
-                ss = "%s_%02d" % (s, i)
-                i += 1
-            set_names.append(ss)
-            idx = __gdx_to_df_set(gdx_file, s, domain_info)
-            idx = idx[idx[s]].index
-            set_index.append(list(idx))
-
-        df = pd.DataFrame(index=pd.MultiIndex.from_product(set_index))
-        df.index.names = set_names
-        df[symbol] = fillna
-
-        (out, err) = __call_gdxdump(gdx_file, symbol)
-        df_in = pd.read_csv(io.StringIO(out), sep=",")
-
-        index = list(df_in.columns[:-1])
-        df_in.set_index(index, inplace=True)
-
-        for idx in df_in.index:
-            df.loc[idx, symbol] = df_in.loc[idx, "Val"]
-        df.fillna(fillna, inplace=True)
-        return df
+    df.drop(tuple(["PLACEHOLDER"] * len(df.index.names)), axis=0, inplace=True, errors="ignore")
+    df.fillna(fillna, inplace=True)
+    return df
 
 
-def __gdx_to_df_scalar(gdx_file, symbol, gams_type="L", fillna=0.0):
-    (out, err) = __call_gdxdump(gdx_file, symbol, gams_type)
-    df = pd.read_csv(io.StringIO(out), sep=",")
-    if gams_type == "L":
-        return float(df.loc[0, "Val"])
-    elif gams_type == "M":
-        return float(df.loc[0, "Marginal"])
-    elif gams_type == "LO":
-        return float(df.loc[0, "Lower"])
-    elif gams_type == "UP":
-        return float(df.loc[0, "Upper"])
-    elif gams_type == "SCALE":
-        return float(df.loc[0, "Scale"])
+def __gdx_to_df_scalar(var, gams_type="L"):
+    if type(var) == gams.GamsParameter:
+        return [v.value for v in var][0]
+    elif gams_type.upper() == "L":
+        return [v.level for v in var][0]
+    elif gams_type.upper() == "M":
+        return [v.marginal for v in var][0]
+    elif gams_type.upper() == "LO":
+        return [v.lower for v in var][0]
+    elif gams_type.upper() == "UP":
+        return [v.upper for v in var][0]
+    elif gams_type.upper() == "SCALE":
+        return [v.scale for v in var][0]
     else:
         raise GamsAddOnException("gams_type %s not defined" % gams_type)
 
 
-def __gdx_to_df_set(gdx_file, symbol, domain_info):
-    sets = domain_info.get_sets(symbol)
-
-    # Set with a undefined set, also 1-dimensional sets
-    if any([s == "*" for s in sets]):
-        (out, err) = __call_gdxdump(gdx_file, symbol)
-        df = pd.read_csv(io.StringIO(out), sep=",", index_col=[idx for idx in range(len(sets))])
-        df[symbol] = True
-        if len(sets) == 1:
-            df.index.names = [symbol]
-        return df
-
-    # Unique set
-    elif [symbol] == sets:
-        set_names = sets
-        (out, err) = __call_gdxdump(gdx_file, symbol)
-        df = pd.read_csv(io.StringIO(out), sep=",")
-        df.set_index(sets, inplace=True)
-        df[symbol] = True
-        return df
-
-    # Super sets or others
-    elif [symbol] != sets:
-        if type(sets) is not list:
-            set_names = [sets]
+def __gdx_to_df_set(s):
+    index_cols = []
+    index_names = []
+    for domain in s.domains:
+        if type(domain) == gams.GamsSet:
+            index_cols.append([ss.keys[0] for ss in domain])
+            index_names.append(domain.name)
         else:
-            set_names = sets
-        set_index = []
-        for s in set_names:
-            set_index.append(list(__gdx_to_df_set(gdx_file, s, domain_info).index))
+            index_cols.append(["PLACEHOLDER"])
+            index_names.append("*")
+    index = pd.MultiIndex.from_product(index_cols)
 
-        if len(set_index) > 1:
-            df = pd.DataFrame(index=pd.MultiIndex.from_product(set_index))
-        else:
-            df = pd.DataFrame(index=set_index[0])
-        df.index.names = set_names
-        df[symbol] = False
+    df = pd.DataFrame(False, index=index, columns=[s.name])
+    df.index.names = index_names
+    if len(df.index.names) == 1 and "*" == df.index.names[0]:
+        df.index.names = [s.name]
+    elif len(df.index.names) > 1 and (
+            any([n == "*" for n in df.index.names]) or any([n == None for n in df.index.names])):
+        df.index.names = ["Dim%d" % d for d in range(1, len(df.index.names) + 1)]
 
-        (out, err) = __call_gdxdump(gdx_file, symbol)
-        df_in = pd.read_csv(io.StringIO(out), sep=",")
-        df_in[symbol] = True
-        index = list(df_in.columns[:-1])
-        df_in.set_index(index, inplace=True)
-        df.loc[df_in.index, symbol] = True
-        df.index.names = set_names
-        return df
-
-    else:
-        raise GamsAddOnException("Check handling of sets %s", sets)
+    for value in s:
+        df.loc[tuple(value.keys), s.name] = (str(value).split(" ")[-1] == "yes")
+    df.drop(tuple(["PLACEHOLDER"] * len(df.index.names)), axis=0, inplace=True, errors="ignore")
+    return df
 
 
 def __call_gdxdump(gdx_file, symbol, gams_type="L"):
