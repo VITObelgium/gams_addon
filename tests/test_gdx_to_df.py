@@ -20,7 +20,7 @@ class TestGdxToDf(unittest.TestCase):
         self.assertEqual(df.index.names[0], "S")
 
         df = ga.gdx_to_df(gdx_file, 'SubS', domain_info=domain_info)
-        self.assertEqual(len(df), 10)
+        self.assertEqual(len(df), 5)
         self.assertEqual(len(df[df['SubS']]), 5)
         self.assertEqual(df.index.nlevels, 1)
         self.assertEqual(df.columns.values, ["SubS"])
@@ -33,14 +33,14 @@ class TestGdxToDf(unittest.TestCase):
         self.assertEqual(df.index.names[0], "I")
 
         df = ga.gdx_to_df(gdx_file, 'SubI', domain_info=domain_info)
-        self.assertEqual(len(df), 10)
+        self.assertEqual(len(df), 5)
         self.assertEqual(len(df[df['SubI']]), 5)
         self.assertEqual(df.index.nlevels, 1)
         self.assertEqual(df.columns.values, ["SubI"])
         self.assertEqual(df.index.names[0], "I")
 
         df = ga.gdx_to_df(gdx_file, 'SubSI', domain_info=domain_info)
-        self.assertEqual(len(df), 100)
+        self.assertEqual(len(df), 25)
         self.assertEqual(len(df[df['SubSI']]), 25)
         self.assertEqual(df.index.nlevels, 2)
         self.assertEqual(df.columns.values, ["SubSI"])
