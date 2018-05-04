@@ -1,5 +1,7 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
 __author__ = 'Hanspeter Höschle <hanspeter.hoeschle@energyville.be>'
-__date__ = "25/04/2018"
+__date__ = "04/05/2018"
 
 import gams
 import pandas as pd

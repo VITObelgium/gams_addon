@@ -2,7 +2,7 @@ from distutils.core import setup
 
 setup(
     name='gams_addon',
-    version='18.04',
+    version='18.05',
     packages=['gams_addon'],
     url='https://github.com/hhoeschle/gams_addon',
     license='',
