@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 __author__ = 'Hanspeter Höschle <hanspeter.hoeschle@energyville.be>'
-__date__ = "04/05/2018"
+__date__ = "07/05/2018"
 
 import gams
 import pandas as pd
@@ -24,11 +24,11 @@ def gdx_to_df(gdx_file, symbol, **kwargs):
             gams_type = kwargs["gams_type"]
 
     if type(s) in [gams.GamsVariable, gams.GamsEquation]:
-        return __gdx_to_df_var_equ(s, gams_type, fillna)
+        return __cast_index_to_int(__gdx_to_df_var_equ(s, gams_type, fillna))
     elif type(s) == gams.GamsParameter:
-        return __gdx_to_df_par(s, fillna)
+        return __cast_index_to_int(__gdx_to_df_par(s, fillna))
     elif type(s) == gams.GamsSet:
-        return __gdx_to_df_set(s)
+        return __cast_index_to_int(__gdx_to_df_set(s))
     else:
         exit("ERROR: NOT YET IMPLEMENTED for %s" % type(s))
 
@@ -109,4 +109,27 @@ def __gdx_to_df_set(s):
     else:
         df.index.names = __replace_stars(s.domains_as_strings)
 
+    return df
+
+
+def __cast_index_to_int(df):
+    if type(df) != float:
+        index_names = df.index.names
+        new_index_names = ["idx_%d" % d for d, idx in enumerate(df.index.levels)]
+        df.index.names = new_index_names
+
+        col_names = [col for col in df.columns]
+        new_col_names = ["col_%d" % d for d, col in enumerate(df.columns)]
+        df = df.rename(dict(zip(col_names, new_col_names)), axis=1)
+
+        df.reset_index(inplace=True)
+        for idx_col in new_index_names:
+            try:
+                df[idx_col] = df[idx_col].astype(int)
+            except:
+                pass
+
+        df.set_index(new_index_names, inplace=True)
+        df.index.names = index_names
+        df = df.rename(dict(zip(new_col_names, col_names)), axis=1)
     return df
