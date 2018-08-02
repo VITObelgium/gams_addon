@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 __author__ = 'Hanspeter Höschle <hanspeter.hoeschle@energyville.be>'
-__date__ = "07/05/2018"
+__date__ = "02/08/2018"
 
 import gams
 import pandas as pd
@@ -12,6 +12,10 @@ from .gams_add_on_exception import GamsAddOnException
 def gdx_to_df(gdx_file, symbol, **kwargs):
     ws = gams.GamsWorkspace()
     db = ws.add_database_from_gdx(gdx_file)
+    return db_to_df(db, symbol, **kwargs)
+
+
+def db_to_df(db, symbol, **kwargs):
     s = db.get_symbol(symbol)
     if s.number_records == 0:
         return __gdx_to_df_var_empty(s)
